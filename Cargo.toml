@@ -9,7 +9,8 @@ path = "src/main.rs"
 
 [dependencies]
 # MCP SDK - Model Context Protocol para exponer tools a Claude y otros modelos
-rmcp = { version = "1.4.0", features = ["server", "transport-io"] }
+rmcp = { version = "1.4.0", features = ["server", "transport-io", "transport-streamable-http-server"] }
+axum = "0.8"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -34,3 +35,4 @@ dotenvy = "0.15"
 
 # Utilidades
 chrono = { version = "0.4", features = ["serde"] }
+tower = "0.5.3"

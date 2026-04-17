@@ -19,6 +19,36 @@ pub enum TrackingTimeAuth {
 }
 
 impl Config {
+    /// Carga config para modo HTTP, identificando al usuario por token.
+    pub fn from_token(token: &str) -> Result<Self> {
+        let user_cfg = cache::load_user_config_by_token(token)
+            .ok_or_else(|| anyhow::anyhow!(
+                "No hay credenciales para este token. Ejecuta tt_setup para configurar tu cuenta."
+            ))?;
+        Ok(Config {
+            tracking_time: TrackingTimeConfig {
+                auth: TrackingTimeAuth::Basic {
+                    email: user_cfg.email,
+                    password: user_cfg.password,
+                },
+                base_url: user_cfg.base_url,
+            },
+        })
+    }
+
+    /// Config vacía para modo HTTP antes de que el usuario ejecute tt_setup.
+    pub fn unconfigured() -> Self {
+        Config {
+            tracking_time: TrackingTimeConfig {
+                auth: TrackingTimeAuth::Basic {
+                    email: String::new(),
+                    password: String::new(),
+                },
+                base_url: "https://api.trackingtime.co/api/v4".to_string(),
+            },
+        }
+    }
+
     pub fn from_env() -> Result<Self> {
         // Prioridad: archivo de config > env vars
         if let Some(user_cfg) = cache::load_user_config() {

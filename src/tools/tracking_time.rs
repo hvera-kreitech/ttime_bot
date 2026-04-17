@@ -16,6 +16,8 @@ use crate::services::tracking_time::{
 /// Conjunto de MCP tools que exponen las capacidades de TrackingTime
 pub struct TrackingTimeTools {
     client: Arc<TrackingTimeClient>,
+    /// Token del usuario en modo HTTP; None en modo stdio
+    user_token: Option<String>,
 }
 
 /// Helper: construye un JSON Schema "object" para el input_schema de una Tool
@@ -35,8 +37,8 @@ fn schema(
 }
 
 impl TrackingTimeTools {
-    pub fn new(client: Arc<TrackingTimeClient>) -> Self {
-        Self { client }
+    pub fn new(client: Arc<TrackingTimeClient>, user_token: Option<String>) -> Self {
+        Self { client, user_token }
     }
 
     /// Retorna la lista de tools disponibles para registrar en el servidor MCP
@@ -422,8 +424,13 @@ impl TrackingTimeTools {
             password: app_password,
             base_url: base_url.clone(),
         };
-        super::super::services::tracking_time::cache::save_user_config(&user_cfg)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        // En modo HTTP guardar por token; en stdio guardar config global
+        if let Some(token) = &self.user_token {
+            super::super::services::tracking_time::cache::save_user_config_by_token(token, &user_cfg)
+        } else {
+            super::super::services::tracking_time::cache::save_user_config(&user_cfg)
+        }.map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Configuración guardada correctamente.\n\

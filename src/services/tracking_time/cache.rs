@@ -14,8 +14,16 @@ pub struct UserConfig {
     pub base_url: String,
 }
 
+/// Carga config del usuario. En modo HTTP usa el token como clave.
+/// En modo stdio usa config.json global.
 pub fn load_user_config() -> Option<UserConfig> {
     let data = std::fs::read_to_string(cache_dir().join("config.json")).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+pub fn load_user_config_by_token(token: &str) -> Option<UserConfig> {
+    let filename = format!("users/{}.json", sanitize_token(token));
+    let data = std::fs::read_to_string(cache_dir().join(&filename)).ok()?;
     serde_json::from_str(&data).ok()
 }
 
@@ -24,6 +32,17 @@ pub fn save_user_config(config: &UserConfig) -> Result<()> {
     std::fs::create_dir_all(path.parent().unwrap())?;
     std::fs::write(&path, serde_json::to_string_pretty(config)?)?;
     Ok(())
+}
+
+pub fn save_user_config_by_token(token: &str, config: &UserConfig) -> Result<()> {
+    let path = cache_dir().join("users").join(format!("{}.json", sanitize_token(token)));
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, serde_json::to_string_pretty(config)?)?;
+    Ok(())
+}
+
+fn sanitize_token(token: &str) -> String {
+    token.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect()
 }
 
 // ─── Tareas conocidas (índice persistente) ────────────────────────────────────
