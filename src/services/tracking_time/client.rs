@@ -41,6 +41,33 @@ impl TrackingTimeClient {
         }
     }
 
+    // ─── Setup ───────────────────────────────────────────────────────────────
+
+    /// Valida credenciales contra la API y devuelve el account_id del usuario.
+    /// No requiere una instancia inicializada — se usa durante tt_setup.
+    pub async fn validate_credentials(email: &str, password: &str) -> Result<(u64, String)> {
+        let client = reqwest::Client::new();
+        let response: serde_json::Value = client
+            .get("https://api.trackingtime.co/api/v4/me")
+            .basic_auth(email, Some(password))
+            .header("Content-Type", "application/json")
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        let account_id = response["data"]["account_id"]
+            .as_u64()
+            .ok_or_else(|| anyhow::anyhow!("No se pudo obtener account_id de la respuesta"))?;
+        let name = response["data"]["name"]
+            .as_str()
+            .unwrap_or("Usuario")
+            .to_string();
+
+        Ok((account_id, name))
+    }
+
     // ─── Proyectos ────────────────────────────────────────────────────────────
 
     pub async fn list_projects(&self, force_refresh: bool) -> Result<Vec<Project>> {

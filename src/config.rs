@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use crate::services::tracking_time::cache;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -19,12 +20,26 @@ pub enum TrackingTimeAuth {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
+        // Prioridad: archivo de config > env vars
+        if let Some(user_cfg) = cache::load_user_config() {
+            return Ok(Config {
+                tracking_time: TrackingTimeConfig {
+                    auth: TrackingTimeAuth::Basic {
+                        email: user_cfg.email,
+                        password: user_cfg.password,
+                    },
+                    base_url: user_cfg.base_url,
+                },
+            });
+        }
+
+        // Fallback a env vars
         let auth = if let Ok(token) = std::env::var("TRACKING_TIME_API_TOKEN") {
             TrackingTimeAuth::Token(token)
         } else {
             TrackingTimeAuth::Basic {
                 email: std::env::var("TRACKING_TIME_EMAIL")
-                    .context("TRACKING_TIME_EMAIL o TRACKING_TIME_API_TOKEN requerido")?,
+                    .context("Credenciales no configuradas. Usa tt_setup para configurar tu cuenta.")?,
                 password: std::env::var("TRACKING_TIME_PASSWORD")
                     .context("TRACKING_TIME_PASSWORD requerido cuando no hay API token")?,
             }
@@ -33,7 +48,7 @@ impl Config {
             tracking_time: TrackingTimeConfig {
                 auth,
                 base_url: std::env::var("TRACKING_TIME_BASE_URL")
-                    .unwrap_or_else(|_| "https://app.trackingtime.co/api/v4".to_string()),
+                    .unwrap_or_else(|_| "https://api.trackingtime.co/api/v4".to_string()),
             },
         })
     }

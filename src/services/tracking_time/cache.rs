@@ -5,6 +5,27 @@ use serde::{Deserialize, Serialize};
 
 use super::models::{Project, Task};
 
+// ─── Configuración de usuario ─────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserConfig {
+    pub email: String,
+    pub password: String,
+    pub base_url: String,
+}
+
+pub fn load_user_config() -> Option<UserConfig> {
+    let data = std::fs::read_to_string(cache_dir().join("config.json")).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+pub fn save_user_config(config: &UserConfig) -> Result<()> {
+    let path = cache_dir().join("config.json");
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, serde_json::to_string_pretty(config)?)?;
+    Ok(())
+}
+
 // ─── Tareas conocidas (índice persistente) ────────────────────────────────────
 
 /// Tarea con nombre de proyecto, para búsqueda fuzzy offline.

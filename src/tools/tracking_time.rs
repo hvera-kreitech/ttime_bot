@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tracing::instrument;
 
 use crate::services::tracking_time::{
-    TrackingTimeClient,
+    client::TrackingTimeClient,
     fuzzy,
     models::CreateTaskRequest,
     sessions,
@@ -42,6 +42,27 @@ impl TrackingTimeTools {
     /// Retorna la lista de tools disponibles para registrar en el servidor MCP
     pub fn tool_definitions() -> Vec<Tool> {
         vec![
+            Tool::new(
+                "tt_setup",
+                "Configura las credenciales de TrackingTime para este usuario. \
+                 Valida el email y app_password contra la API, obtiene el account_id \
+                 automáticamente y guarda la configuración de forma persistente. \
+                 Usar esta tool la primera vez o cuando cambien las credenciales. \
+                 El app_password se genera en: https://app.trackingtime.co/settings/api",
+                schema(
+                    Some(json!({
+                        "email": {
+                            "type": "string",
+                            "description": "Email de la cuenta de TrackingTime"
+                        },
+                        "app_password": {
+                            "type": "string",
+                            "description": "App Password generado en TrackingTime (Settings → API)"
+                        }
+                    })),
+                    Some(&["email", "app_password"]),
+                ),
+            ),
             Tool::new(
                 "tt_list_projects",
                 "Lista todos los proyectos disponibles en TrackingTime. \
@@ -353,6 +374,7 @@ impl TrackingTimeTools {
     #[instrument(skip(self), fields(tool = %name))]
     pub async fn call(&self, name: &str, args: Value) -> Result<CallToolResult, McpError> {
         match name {
+            "tt_setup" => self.setup(args).await,
             "tt_list_projects" => self.list_projects(args).await,
             "tt_list_tasks" => self.list_tasks(args).await,
             "tt_create_task" => self.create_task(args).await,
@@ -377,6 +399,41 @@ impl TrackingTimeTools {
     }
 
     // ─── Implementaciones individuales ────────────────────────────────────────
+
+    async fn setup(&self, args: Value) -> Result<CallToolResult, McpError> {
+        let email = args.get("email")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::invalid_params("El campo 'email' es requerido", None))?
+            .to_string();
+        let app_password = args.get("app_password")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::invalid_params("El campo 'app_password' es requerido", None))?
+            .to_string();
+
+        let (account_id, name) = TrackingTimeClient::validate_credentials(&email, &app_password)
+            .await
+            .map_err(|e| McpError::internal_error(
+                format!("Credenciales inválidas: {}", e), None
+            ))?;
+
+        let base_url = format!("https://api.trackingtime.co/api/v4/{}", account_id);
+        let user_cfg = super::super::services::tracking_time::cache::UserConfig {
+            email: email.clone(),
+            password: app_password,
+            base_url: base_url.clone(),
+        };
+        super::super::services::tracking_time::cache::save_user_config(&user_cfg)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Configuración guardada correctamente.\n\
+             Usuario: {} ({})\n\
+             Account ID: {}\n\
+             Base URL: {}\n\n\
+             A partir de ahora usaré estas credenciales automáticamente.",
+            name, email, account_id, base_url
+        ))]))
+    }
 
     async fn list_projects(&self, args: Value) -> Result<CallToolResult, McpError> {
         let force_refresh = args.get("force_refresh").and_then(|v| v.as_bool()).unwrap_or(false);
