@@ -1,0 +1,36 @@
+[package]
+name = "ttime-bot"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ttime-bot"
+path = "src/main.rs"
+
+[dependencies]
+# MCP SDK - Model Context Protocol para exponer tools a Claude y otros modelos
+rmcp = { version = "1.4.0", features = ["server", "transport-io"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client para llamar APIs externas
+reqwest = { version = "0.12", features = ["json"] }
+
+# Serialización / deserialización
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Variables de entorno
+dotenvy = "0.15"
+
+# Utilidades
+chrono = { version = "0.4", features = ["serde"] }
