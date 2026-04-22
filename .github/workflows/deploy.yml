@@ -44,9 +44,12 @@ jobs:
 
           scp -i /tmp/deploy_key -o StrictHostKeyChecking=no \
             target/x86_64-unknown-linux-musl/release/ttime-bot \
-            $USER@$HOST:/usr/local/bin/ttime-bot
+            $USER@$HOST:/home/$USER/ttime-bot
 
           ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no $USER@$HOST \
-            "sudo systemctl restart ttime-bot && sudo systemctl status ttime-bot --no-pager"
+            "sudo mv /home/$USER/ttime-bot /usr/local/bin/ttime-bot && \
+             sudo chmod +x /usr/local/bin/ttime-bot && \
+             sudo systemctl restart ttime-bot && \
+             sudo systemctl status ttime-bot --no-pager"
 
           rm /tmp/deploy_key
