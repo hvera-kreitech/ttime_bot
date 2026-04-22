@@ -605,7 +605,11 @@ impl TrackingTimeTools {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let (task_name, project_id, project_name) = match task {
-            Some(t) => (t.name, t.project_id, t.project_name),
+            Some(t) => (
+                t.name.unwrap_or_else(|| format!("Tarea #{}", task_id)),
+                t.project_id,
+                t.project_name,
+            ),
             None => (format!("Tarea #{}", task_id), None, None),
         };
 
@@ -782,7 +786,7 @@ impl TrackingTimeTools {
                 let tasks = super::super::services::tracking_time::cache::load_tasks(Some(project.project_id))
                     .unwrap_or_default();
                 let names: Vec<String> = tasks.iter()
-                    .map(|t| format!("• {} (id: {})", t.name, t.id))
+                    .map(|t| format!("• {} (id: {})", t.name.as_deref().unwrap_or("(sin nombre)"), t.id))
                     .collect();
                 Ok(CallToolResult::success(vec![Content::text(format!(
                     "Proyecto encontrado: {} (id: {})\n\
@@ -846,7 +850,11 @@ impl TrackingTimeTools {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let (task_name, project_id, project_name) = match task {
-            Some(t) => (t.name, t.project_id, t.project_name),
+            Some(t) => (
+                t.name.unwrap_or_else(|| format!("Tarea #{}", task_id)),
+                t.project_id,
+                t.project_name,
+            ),
             None => (format!("Tarea #{}", task_id), None, None),
         };
 

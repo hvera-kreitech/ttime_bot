@@ -28,23 +28,21 @@ pub struct Project {
 #[derive(Debug, Deserialize)]
 pub struct ProjectMin {
     pub id: Option<u64>,
-    pub name: String,
+    pub name: Option<String>,
     pub tasks: Option<Vec<Task>>,
 }
 
 // ─── Tareas ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(default)]
 pub struct Task {
-    #[serde(default)]
     pub id: u64,
-    #[serde(default)]
-    pub name: String,
+    pub name: Option<String>,
     pub project_id: Option<u64>,
+    #[serde(alias = "project")]
     pub project_name: Option<String>,
-    // el API puede devolver status como número o string
     pub status: Option<serde_json::Value>,
-    // puede venir como número entero (minutos) o float
     pub estimated_hours: Option<serde_json::Value>,
     pub notes: Option<String>,
 }
@@ -89,8 +87,12 @@ pub struct StopTimerRequest {
 #[derive(Debug, Serialize)]
 pub struct LogTimeRequest {
     pub task_id: u64,
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
+    /// "YYYY-MM-DD" en hora local Uruguay (UTC-3)
+    pub date: String,
+    /// "YYYY-MM-DD HH:MM:SS" en hora local Uruguay (UTC-3)
+    pub start: String,
+    /// "YYYY-MM-DD HH:MM:SS" en hora local Uruguay (UTC-3)
+    pub end: String,
     pub duration: u64,
     pub notes: Option<String>,
 }

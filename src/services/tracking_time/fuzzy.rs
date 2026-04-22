@@ -80,11 +80,12 @@ pub fn find_task_in_project(query: &str, project_id: u64, project_name: &str) ->
         for t in tasks {
             if t.id == 0 { continue; }
             if best.as_ref().map_or(false, |b| b.task_id == t.id) { continue; }
-            let score = score_match(&query_words, &t.name);
+            let name_str = t.name.as_deref().unwrap_or("");
+            let score = score_match(&query_words, name_str);
             if score >= 0.2 {
                 let candidate = TaskMatch {
                     task_id: t.id,
-                    task_name: t.name,
+                    task_name: t.name.unwrap_or_default(),
                     project_id,
                     project_name: project_name.to_string(),
                     score,
@@ -135,13 +136,14 @@ pub fn search(query: &str, limit: usize) -> Vec<SearchResult> {
             // Evitar duplicado con known_tasks
             if results.iter().any(|r| r.task_id == Some(task.id)) { continue; }
             let project_name = task.project_name.clone().unwrap_or_default();
-            let combined = format!("{} {}", task.name, project_name);
+            let task_name_str = task.name.as_deref().unwrap_or("");
+            let combined = format!("{} {}", task_name_str, project_name);
             let score = score_match(&query_words, &combined);
             if score >= 0.2 {
                 results.push(SearchResult {
                     kind: "task".to_string(),
                     task_id: Some(task.id),
-                    task_name: Some(task.name),
+                    task_name: Some(task.name.unwrap_or_default()),
                     project_id: task.project_id.unwrap_or(0),
                     project_name,
                     score,

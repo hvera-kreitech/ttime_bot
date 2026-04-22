@@ -1,6 +1,6 @@
 use anyhow::Result;
 use reqwest::{Client, RequestBuilder, header};
-use chrono::Utc;
+use chrono::{DateTime, FixedOffset, Utc};
 
 use crate::config::{TrackingTimeAuth, TrackingTimeConfig};
 use super::cache;
@@ -99,16 +99,19 @@ impl TrackingTimeClient {
 
         let tasks = if let Some(pid) = project_id {
             // Endpoint correcto para tareas de un proyecto específico
-            let response: ApiResponse<ProjectMin> = self
+            let raw = self
                 .auth(self.http.get(format!("{}/projects/{}/min", self.base_url, pid)))
                 .query(&[("include_tasks", "true")])
                 .send()
                 .await?
                 .error_for_status()?
-                .json()
+                .text()
                 .await?;
+            tracing::debug!("ProjectMin raw response (first 500): {}", &raw[..raw.len().min(500)]);
+            let response: ApiResponse<ProjectMin> = serde_json::from_str(&raw)
+                .map_err(|e| anyhow::anyhow!("Error deserializando ProjectMin: {}\nBody (1000 chars): {}", e, &raw[..raw.len().min(1000)]))?;
 
-            let project_name = response.data.name.clone();
+            let project_name = response.data.name.clone().unwrap_or_default();
             let mut tasks = response.data.tasks.unwrap_or_default();
 
             // Rellenar project_name en cada tarea (viene null desde este endpoint)
@@ -118,19 +121,17 @@ impl TrackingTimeClient {
 
             // Guardar en known_tasks para uso futuro como tareas recurrentes
             for t in &tasks {
-                let _ = save_known_task(t.id, &t.name, pid, &project_name);
+                let _ = save_known_task(t.id, t.name.as_deref().unwrap_or(""), pid, &project_name);
             }
 
             tasks
         } else {
             let mut req = self.auth(self.http.get(format!("{}/tasks", self.base_url)));
             req = req.query(&[("filter", "ALL")]);
-            let response: ApiResponse<Vec<Task>> = req
-                .send()
-                .await?
-                .error_for_status()?
-                .json()
-                .await?;
+            let raw = req.send().await?.error_for_status()?.text().await?;
+            tracing::debug!("Tasks raw response (first 500): {}", &raw[..raw.len().min(500)]);
+            let response: ApiResponse<Vec<Task>> = serde_json::from_str(&raw)
+                .map_err(|e| anyhow::anyhow!("Error deserializando Vec<Task>: {}\nBody (1000 chars): {}", e, &raw[..raw.len().min(1000)]))?;
             response.data
         };
 
@@ -213,15 +214,41 @@ impl TrackingTimeClient {
         let start = parse_time_arg(start_str)?;
         let end = parse_time_arg(end_str)?;
         let duration_secs = (end - start).num_seconds().max(0) as u64;
-        let body = LogTimeRequest { task_id, start, end, duration: duration_secs, notes };
-        let response: ApiResponse<TimeEntry> = self
+        let start_tt = to_tt_datetime(start);
+        let end_tt = to_tt_datetime(end);
+        let date_tt = start_tt[..10].to_string(); // "YYYY-MM-DD"
+        let body = LogTimeRequest {
+            task_id,
+            date: date_tt,
+            start: start_tt,
+            end: end_tt,
+            duration: duration_secs,
+            notes,
+        };
+
+        let body_json = serde_json::to_string_pretty(&body)?;
+        std::fs::write("/tmp/ttime-bot-log-time-req.log", &body_json).ok();
+        tracing::debug!("log_time request body: {}", &body_json);
+
+        let resp = self
             .auth(self.http.post(format!("{}/events/add", self.base_url)))
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?
-            .json()
             .await?;
+        let status = resp.status();
+        let resp_body = resp.text().await?;
+        std::fs::write(
+            "/tmp/ttime-bot-log-time-res.log",
+            format!("status: {status}\nbody:\n{resp_body}"),
+        ).ok();
+        tracing::debug!("log_time response: status={}, body={}", status, &resp_body);
+
+        if !status.is_success() {
+            return Err(anyhow::anyhow!("log_time falló: status {}, body: {}", status, resp_body));
+        }
+
+        let response: ApiResponse<TimeEntry> = serde_json::from_str(&resp_body)
+            .map_err(|e| anyhow::anyhow!("Error deserializando log_time response: {}\nBody: {}", e, resp_body))?;
         Ok(response.data)
     }
 
@@ -269,4 +296,11 @@ impl TrackingTimeClient {
             .await?;
         Ok(response.data)
     }
+}
+
+/// Convierte un `DateTime<Utc>` al formato que espera la API de TrackingTime:
+/// "YYYY-MM-DD HH:MM:SS" en hora local Uruguay (UTC-3, sin DST).
+fn to_tt_datetime(dt: DateTime<Utc>) -> String {
+    let uy = FixedOffset::west_opt(3 * 3600).expect("offset válido");
+    dt.with_timezone(&uy).format("%Y-%m-%d %H:%M:%S").to_string()
 }
