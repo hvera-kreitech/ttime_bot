@@ -16,7 +16,7 @@ axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 
 # HTTP client para llamar APIs externas
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Serialización / deserialización
 serde = { version = "1", features = ["derive"] }
