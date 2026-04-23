@@ -126,7 +126,7 @@ async fn run_stdio() -> Result<()> {
 
 async fn run_http(port: u16) -> Result<()> {
     use axum::{Router, extract::Query};
-    use rmcp::transport::streamable_http_server::{StreamableHttpService, session::local::LocalSessionManager};
+    use rmcp::transport::streamable_http_server::{StreamableHttpService, StreamableHttpServerConfig, session::local::LocalSessionManager};
     use std::collections::HashMap;
     use tower::Service;
 
@@ -145,7 +145,7 @@ async fn run_http(port: u16) -> Result<()> {
                         .map_err(|e| std::io::Error::other(e.to_string()))
                 },
                 Arc::new(LocalSessionManager::default()),
-                Default::default(),
+                StreamableHttpServerConfig::default().disable_allowed_hosts(),
             );
             service.call(req).await
         }));
