@@ -122,14 +122,14 @@ async fn run_stdio() -> Result<()> {
 }
 
 async fn run_http(port: u16) -> Result<()> {
-    use axum::{Router, extract::{Query, Request}, http::HeaderMap};
+    use axum::{Router, extract::{Query, Request, State}, http::HeaderMap};
     use rmcp::transport::streamable_http_server::{
         StreamableHttpService, StreamableHttpServerConfig, session::local::LocalSessionManager,
     };
     use std::collections::HashMap;
+    use tokio::sync::Mutex;
     use tower::Service;
 
-    // URL base del servidor (para OAuth discovery)
     let base_url = std::env::var("BASE_URL")
         .unwrap_or_else(|_| format!("http://localhost:{}", port));
 
@@ -138,14 +138,26 @@ async fn run_http(port: u16) -> Result<()> {
 
     let oauth_state = oauth::OAuthState::new(&base_url);
 
+    // SessionManager compartido por token — las sesiones MCP persisten entre requests
+    let session_managers: Arc<Mutex<HashMap<String, Arc<LocalSessionManager>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
     let mcp_route = axum::routing::any(|
+        axum::extract::Extension(managers): axum::extract::Extension<Arc<Mutex<HashMap<String, Arc<LocalSessionManager>>>>>,
         Query(params): Query<HashMap<String, String>>,
         headers: HeaderMap,
         req: Request,
     | async move {
-        // Acepta token desde Bearer header (claude.ai web) o query param (Claude Desktop)
         let query_token = params.get("token").cloned().unwrap_or_default();
         let token = oauth::extract_token(&headers, &query_token);
+
+        // Obtener o crear el session manager para este token
+        let session_manager = {
+            let mut map = managers.lock().await;
+            map.entry(token.clone())
+                .or_insert_with(|| Arc::new(LocalSessionManager::default()))
+                .clone()
+        };
 
         let mut service = StreamableHttpService::new(
             move || {
@@ -153,14 +165,15 @@ async fn run_http(port: u16) -> Result<()> {
                 TtimeServer::for_token(token)
                     .map_err(|e| std::io::Error::other(e.to_string()))
             },
-            Arc::new(LocalSessionManager::default()),
+            session_manager,
             StreamableHttpServerConfig::default().disable_allowed_hosts(),
         );
         service.call(req).await
     });
 
     let app = oauth::router(oauth_state)
-        .route("/mcp", mcp_route);
+        .route("/mcp", mcp_route)
+        .layer(axum::Extension(session_managers));
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     info!("Escuchando en http://0.0.0.0:{}", port);
