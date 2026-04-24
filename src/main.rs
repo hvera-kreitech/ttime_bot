@@ -1,5 +1,6 @@
 mod config;
 mod error;
+mod oauth;
 mod services;
 mod tools;
 
@@ -30,7 +31,6 @@ use tools::tracking_time::TrackingTimeTools;
 #[derive(Clone)]
 struct TtimeServer {
     tracking_time_tools: Arc<TrackingTimeTools>,
-    /// Token del usuario en modo HTTP (None en modo stdio)
     user_token: Option<String>,
 }
 
@@ -41,8 +41,6 @@ impl TtimeServer {
         Ok(Self { tracking_time_tools, user_token })
     }
 
-    /// Crea un servidor en modo HTTP para un usuario identificado por token.
-    /// Si no hay credenciales guardadas, crea un servidor en modo "setup".
     fn for_token(token: String) -> Result<Self> {
         let config = Config::from_token(&token).unwrap_or_else(|_| Config::unconfigured());
         let tt_client = Arc::new(TrackingTimeClient::new(&config.tracking_time)?);
@@ -106,7 +104,6 @@ async fn main() -> Result<()> {
 
     let _ = dotenvy::dotenv();
 
-    // Detectar modo por env var o argumento
     let port = std::env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok());
 
     if let Some(port) = port {
@@ -125,33 +122,48 @@ async fn run_stdio() -> Result<()> {
 }
 
 async fn run_http(port: u16) -> Result<()> {
-    use axum::{Router, extract::Query};
-    use rmcp::transport::streamable_http_server::{StreamableHttpService, StreamableHttpServerConfig, session::local::LocalSessionManager};
+    use axum::{Router, extract::{Query, Request}, http::HeaderMap};
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpService, StreamableHttpServerConfig, session::local::LocalSessionManager,
+    };
     use std::collections::HashMap;
     use tower::Service;
 
-    info!("Iniciando ttime-bot en modo HTTP v{} en puerto {}", env!("CARGO_PKG_VERSION"), port);
+    // URL base del servidor (para OAuth discovery)
+    let base_url = std::env::var("BASE_URL")
+        .unwrap_or_else(|_| format!("http://localhost:{}", port));
 
-    let app = Router::new()
-        .route("/mcp", axum::routing::any(|
-            Query(params): Query<HashMap<String, String>>,
-            req: axum::extract::Request,
-        | async move {
-            let token = params.get("token").cloned().unwrap_or_default();
-            let mut service = StreamableHttpService::new(
-                move || {
-                    let token = token.clone();
-                    TtimeServer::for_token(token)
-                        .map_err(|e| std::io::Error::other(e.to_string()))
-                },
-                Arc::new(LocalSessionManager::default()),
-                StreamableHttpServerConfig::default().disable_allowed_hosts(),
-            );
-            service.call(req).await
-        }));
+    info!("Iniciando ttime-bot en modo HTTP v{} en puerto {}", env!("CARGO_PKG_VERSION"), port);
+    info!("OAuth base URL: {}", base_url);
+
+    let oauth_state = oauth::OAuthState::new(&base_url);
+
+    let mcp_route = axum::routing::any(|
+        Query(params): Query<HashMap<String, String>>,
+        headers: HeaderMap,
+        req: Request,
+    | async move {
+        // Acepta token desde Bearer header (claude.ai web) o query param (Claude Desktop)
+        let query_token = params.get("token").cloned().unwrap_or_default();
+        let token = oauth::extract_token(&headers, &query_token);
+
+        let mut service = StreamableHttpService::new(
+            move || {
+                let token = token.clone();
+                TtimeServer::for_token(token)
+                    .map_err(|e| std::io::Error::other(e.to_string()))
+            },
+            Arc::new(LocalSessionManager::default()),
+            StreamableHttpServerConfig::default().disable_allowed_hosts(),
+        );
+        service.call(req).await
+    });
+
+    let app = oauth::router(oauth_state)
+        .route("/mcp", mcp_route);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
-    info!("Escuchando en http://0.0.0.0:{}/mcp?token=TU_TOKEN", port);
+    info!("Escuchando en http://0.0.0.0:{}", port);
     axum::serve(listener, app).await?;
     Ok(())
 }

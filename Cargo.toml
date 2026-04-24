@@ -36,3 +36,8 @@ dotenvy = "0.15"
 # Utilidades
 chrono = { version = "0.4", features = ["serde"] }
 tower = "0.5.3"
+
+# OAuth server
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+base64 = "0.22"
