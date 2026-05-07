@@ -161,19 +161,14 @@ impl TrackingTimeClient {
         until: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<TimeEntry>> {
+        // /events/flat es el endpoint correcto para filtrar por proyecto o tarea con rango de fechas.
+        // /events (sin account_id en el path) solo sirve para obtener el timer activo.
+        if project_id.is_some() || task_id.is_some() || since.is_some() {
+            return self.list_time_entries_flat(task_id, project_id, since, until, limit).await;
+        }
+
+        // Sin filtros: usar /events para obtener entradas recientes (ej: timer activo)
         let mut params: Vec<(String, String)> = Vec::new();
-        if let Some(tid) = task_id {
-            params.push(("tid".to_string(), tid.to_string()));
-        }
-        if let Some(pid) = project_id {
-            params.push(("pid".to_string(), pid.to_string()));
-        }
-        if let Some(s) = since {
-            params.push(("since".to_string(), s.to_string()));
-        }
-        if let Some(u) = until {
-            params.push(("until".to_string(), u.to_string()));
-        }
         if let Some(l) = limit {
             params.push(("limit".to_string(), l.to_string()));
         }
@@ -187,21 +182,52 @@ impl TrackingTimeClient {
             .json()
             .await?;
 
-        // Los events usan campos abreviados: s=start, e=end, d=duration, tid=task_id, etc.
         let events = raw["data"].as_array().cloned().unwrap_or_default();
-        let entries: Vec<TimeEntry> = events.into_iter().map(|ev| TimeEntry {
-            id: ev["id"].as_u64().unwrap_or(0),
-            task_id: ev["tid"].as_u64(),
-            task_name: ev["t"].as_str().map(String::from),
-            project_id: ev["pid"].as_u64(),
-            project_name: ev["p"].as_str().map(String::from),
-            start: Some(ev["s"].clone()),
-            end: if ev["e"].is_null() { None } else { Some(ev["e"].clone()) },
-            duration: ev["d"].as_u64(),
-            notes: ev["n"].as_str().map(String::from),
-        }).collect();
+        Ok(events.into_iter().map(parse_event).collect())
+    }
 
-        Ok(entries)
+    /// Llama a /events/flat con filter=PROJECT o filter=TASK y rango from/to.
+    async fn list_time_entries_flat(
+        &self,
+        task_id: Option<u64>,
+        project_id: Option<u64>,
+        since: Option<&str>,
+        until: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Vec<TimeEntry>> {
+        let mut params: Vec<(String, String)> = Vec::new();
+
+        if let Some(pid) = project_id {
+            params.push(("filter".to_string(), "PROJECT".to_string()));
+            params.push(("id".to_string(), pid.to_string()));
+        } else if let Some(tid) = task_id {
+            params.push(("filter".to_string(), "TASK".to_string()));
+            params.push(("id".to_string(), tid.to_string()));
+        }
+
+        if let Some(s) = since {
+            params.push(("from".to_string(), s.to_string()));
+        }
+        if let Some(u) = until {
+            params.push(("to".to_string(), u.to_string()));
+        }
+        if let Some(l) = limit {
+            params.push(("page_size".to_string(), l.to_string()));
+        }
+
+        let raw: serde_json::Value = self
+            .auth(self.http.get(format!("{}/events/flat", self.base_url)))
+            .query(&params)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        tracing::debug!("events/flat response (first 500): {}", &raw.to_string()[..raw.to_string().len().min(500)]);
+
+        let events = raw["data"].as_array().cloned().unwrap_or_default();
+        Ok(events.into_iter().map(parse_flat_event).collect())
     }
 
     pub async fn start_timer(&self, task_id: u64, notes: Option<String>) -> Result<TimeEntry> {
@@ -311,6 +337,36 @@ impl TrackingTimeClient {
             .json()
             .await?;
         Ok(response.data)
+    }
+}
+
+/// Parsea un evento del endpoint /events (campos abreviados: s, e, d, tid, pid, t, p, n).
+fn parse_event(ev: serde_json::Value) -> TimeEntry {
+    TimeEntry {
+        id: ev["id"].as_u64().unwrap_or(0),
+        task_id: ev["tid"].as_u64(),
+        task_name: ev["t"].as_str().map(String::from),
+        project_id: ev["pid"].as_u64(),
+        project_name: ev["p"].as_str().map(String::from),
+        start: Some(ev["s"].clone()),
+        end: if ev["e"].is_null() { None } else { Some(ev["e"].clone()) },
+        duration: ev["d"].as_u64(),
+        notes: ev["n"].as_str().map(String::from),
+    }
+}
+
+/// Parsea un evento del endpoint /events/flat (campos completos: task_id, project_id, start_time, end_time, etc.).
+fn parse_flat_event(ev: serde_json::Value) -> TimeEntry {
+    TimeEntry {
+        id: ev["id"].as_u64().unwrap_or(0),
+        task_id: ev["task_id"].as_u64(),
+        task_name: ev["task_name"].as_str().map(String::from),
+        project_id: ev["project_id"].as_u64(),
+        project_name: ev["project_name"].as_str().map(String::from),
+        start: ev.get("start_time").cloned(),
+        end: ev.get("end_time").filter(|v| !v.is_null()).cloned(),
+        duration: ev["duration"].as_u64(),
+        notes: ev["notes"].as_str().map(String::from),
     }
 }
 
