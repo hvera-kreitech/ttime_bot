@@ -41,6 +41,19 @@ impl TrackingTimeTools {
         Self { client, user_token }
     }
 
+    /// Verifica si el usuario actual es admin según la env var ADMIN_TOKENS.
+    /// ADMIN_TOKENS es una lista separada por comas: "hvera,jperez"
+    fn is_admin(&self) -> bool {
+        let token = match &self.user_token {
+            Some(t) => t.clone(),
+            None => return true, // modo stdio (local) → sin restricciones
+        };
+        std::env::var("ADMIN_TOKENS")
+            .unwrap_or_default()
+            .split(',')
+            .any(|t| t.trim() == token)
+    }
+
     /// Retorna la lista de tools disponibles para registrar en el servidor MCP
     pub fn tool_definitions() -> Vec<Tool> {
         vec![
@@ -596,6 +609,26 @@ impl TrackingTimeTools {
         let until = args.get("until").and_then(|v| v.as_str()).map(String::from);
         let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as u32);
 
+        let is_admin = self.is_admin();
+
+        if !is_admin {
+            // Usuarios no admin: requieren proyecto + rango de fechas
+            let missing_project = project_id.is_none() && task_id.is_none();
+            let missing_dates = since.is_none() || until.is_none();
+
+            if missing_project || missing_dates {
+                let mut msg = String::from("Para consultar horas necesitás especificar:\n");
+                if missing_project {
+                    msg.push_str("• project_id o task_id (proyecto o tarea)\n");
+                }
+                if missing_dates {
+                    msg.push_str("• since y until (rango de fechas, formato YYYY-MM-DD)\n");
+                }
+                msg.push_str("\nEjemplo: horas del proyecto DROT en abril → project_id=123, since=2026-04-01, until=2026-04-30");
+                return Ok(CallToolResult::success(vec![Content::text(msg)]));
+            }
+        }
+
         let entries = self.client
             .list_time_entries(task_id, project_id, since.as_deref(), until.as_deref(), limit.or(Some(100)))
             .await
@@ -743,35 +776,48 @@ impl TrackingTimeTools {
 
         // ── Paso 1: resolver proyecto ────────────────────────────────────────────
 
-        // Intentar desde cache primero
-        let project_match = fuzzy::find_project(&project_query);
+        let mut candidates = fuzzy::find_projects(&project_query);
 
-        let project_match = if project_match.is_none() {
+        if candidates.is_empty() {
             // Cache vacío o sin match → refrescar desde API
             self.client.list_projects(true).await
                 .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-            fuzzy::find_project(&project_query)
-        } else {
-            project_match
-        };
+            candidates = fuzzy::find_projects(&project_query);
+        }
 
-        let project = match project_match {
-            Some(p) => p,
-            None => {
-                // Listar proyectos disponibles para orientar al usuario
-                let projects = super::super::services::tracking_time::cache::load_projects()
-                    .unwrap_or_default();
-                let names: Vec<String> = projects.iter()
-                    .map(|p| format!("• {} (id: {})", p.name, p.id))
-                    .collect();
-                return Ok(CallToolResult::success(vec![Content::text(format!(
-                    "No encontré ningún proyecto que coincida con '{}'. \
-                     ¿Quisiste decir alguno de estos?\n\n{}",
-                    project_query,
-                    names.join("\n")
-                ))]));
-            }
-        };
+        if candidates.is_empty() {
+            let projects = super::super::services::tracking_time::cache::load_projects()
+                .unwrap_or_default();
+            let names: Vec<String> = projects.iter()
+                .map(|p| format!("• {} (id: {})", p.name, p.id))
+                .collect();
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "No encontré ningún proyecto que coincida con '{}'. \
+                 ¿Quisiste decir alguno de estos?\n\n{}",
+                project_query,
+                names.join("\n")
+            ))]));
+        }
+
+        // Si hay varios candidatos con score cercano al mejor, pedir confirmación
+        let best_score = candidates[0].score;
+        let ambiguous: Vec<&fuzzy::ProjectMatch> = candidates.iter()
+            .filter(|c| best_score - c.score < 0.15)
+            .collect();
+
+        if ambiguous.len() > 1 {
+            let opciones: Vec<String> = ambiguous.iter()
+                .map(|p| format!("• {} (id: {})", p.project_name, p.project_id))
+                .collect();
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Encontré varios proyectos que coinciden con '{}'. \
+                 ¿A cuál te referís?\n\n{}",
+                project_query,
+                opciones.join("\n")
+            ))]));
+        }
+
+        let project = candidates.into_iter().next().unwrap();
 
         // ── Paso 2: resolver tarea dentro del proyecto ───────────────────────────
 

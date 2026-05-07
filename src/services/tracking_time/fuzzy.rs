@@ -31,13 +31,14 @@ pub struct TaskMatch {
     pub score: f32,
 }
 
-/// Busca el proyecto más parecido al query dentro del cache de proyectos.
-/// Devuelve el mejor match si su score supera el umbral mínimo.
-pub fn find_project(query: &str) -> Option<ProjectMatch> {
+/// Devuelve todos los proyectos que superan el umbral, ordenados por score desc.
+pub fn find_projects(query: &str) -> Vec<ProjectMatch> {
     let query_words = tokenize(query);
-    if query_words.is_empty() { return None; }
+    if query_words.is_empty() { return vec![]; }
 
-    cache::load_projects()?.into_iter()
+    let mut matches: Vec<ProjectMatch> = cache::load_projects()
+        .unwrap_or_default()
+        .into_iter()
         .filter_map(|p| {
             let score = score_match(&query_words, &p.name);
             if score >= 0.25 {
@@ -46,7 +47,16 @@ pub fn find_project(query: &str) -> Option<ProjectMatch> {
                 None
             }
         })
-        .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+        .collect();
+
+    matches.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    matches
+}
+
+/// Busca el proyecto más parecido al query dentro del cache de proyectos.
+/// Devuelve el mejor match si su score supera el umbral mínimo.
+pub fn find_project(query: &str) -> Option<ProjectMatch> {
+    find_projects(query).into_iter().next()
 }
 
 /// Busca la tarea más parecida al query dentro del cache de un proyecto específico.
