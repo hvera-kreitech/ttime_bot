@@ -356,18 +356,19 @@ fn parse_event(ev: serde_json::Value) -> TimeEntry {
     }
 }
 
-/// Parsea un evento del endpoint /events/flat (campos completos: task_id, project_id, start_time, end_time, etc.).
+/// Parsea un evento del endpoint /events/flat.
+/// Los campos usan nombres capitalizados con espacios: "ID", "Start", "Task Id", etc.
 fn parse_flat_event(ev: serde_json::Value) -> TimeEntry {
     TimeEntry {
-        id: ev["id"].as_u64().unwrap_or(0),
-        task_id: ev["task_id"].as_u64(),
-        task_name: ev["task_name"].as_str().map(String::from),
-        project_id: ev["project_id"].as_u64(),
-        project_name: ev["project_name"].as_str().map(String::from),
-        start: ev.get("start_time").cloned(),
-        end: ev.get("end_time").filter(|v| !v.is_null()).cloned(),
-        duration: ev["duration"].as_u64(),
-        notes: ev["notes"].as_str().map(String::from),
+        id: ev["ID"].as_u64().unwrap_or(0),
+        task_id: ev["Task Id"].as_u64(),
+        task_name: ev["Task"].as_str().map(String::from),
+        project_id: ev["Project Id"].as_u64(),
+        project_name: ev["Project"].as_str().map(String::from),
+        start: ev.get("Start").filter(|v| !v.is_null()).cloned(),
+        end: ev.get("End").filter(|v| !v.is_null()).cloned(),
+        duration: ev["Duration"].as_u64(),
+        notes: ev["Notes"].as_str().map(String::from),
     }
 }
 
