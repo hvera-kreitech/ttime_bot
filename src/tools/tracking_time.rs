@@ -163,17 +163,30 @@ impl TrackingTimeTools {
             ),
             Tool::new(
                 "tt_list_time_entries",
-                "Lista las entradas de tiempo registradas. \
-                 Permite ver el historial de trabajo por tarea.",
+                "Lista las entradas de tiempo registradas. Permite filtrar por tarea, proyecto \
+                 y rango de fechas. Útil para consultar horas trabajadas en un proyecto durante \
+                 un período específico (ej: el mes de abril).",
                 schema(
                     Some(json!({
                         "task_id": {
                             "type": "number",
                             "description": "Filtrar por ID de tarea (opcional)"
                         },
+                        "project_id": {
+                            "type": "number",
+                            "description": "Filtrar por ID de proyecto (opcional)"
+                        },
+                        "since": {
+                            "type": "string",
+                            "description": "Fecha de inicio del rango, formato YYYY-MM-DD (opcional)"
+                        },
+                        "until": {
+                            "type": "string",
+                            "description": "Fecha de fin del rango, formato YYYY-MM-DD (opcional)"
+                        },
                         "limit": {
                             "type": "number",
-                            "description": "Cantidad máxima de entradas a retornar (opcional, default 20)"
+                            "description": "Cantidad máxima de entradas a retornar (opcional, default 100)"
                         }
                     })),
                     None,
@@ -578,10 +591,13 @@ impl TrackingTimeTools {
 
     async fn list_time_entries(&self, args: Value) -> Result<CallToolResult, McpError> {
         let task_id = args.get("task_id").and_then(|v| v.as_u64());
+        let project_id = args.get("project_id").and_then(|v| v.as_u64());
+        let since = args.get("since").and_then(|v| v.as_str()).map(String::from);
+        let until = args.get("until").and_then(|v| v.as_str()).map(String::from);
         let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as u32);
 
         let entries = self.client
-            .list_time_entries(task_id, limit.or(Some(20)))
+            .list_time_entries(task_id, project_id, since.as_deref(), until.as_deref(), limit.or(Some(100)))
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 

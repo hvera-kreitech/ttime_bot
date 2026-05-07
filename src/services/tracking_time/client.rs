@@ -153,10 +153,26 @@ impl TrackingTimeClient {
 
     // ─── Entradas de tiempo ────────────────────────────────────────────────────
 
-    pub async fn list_time_entries(&self, task_id: Option<u64>, limit: Option<u32>) -> Result<Vec<TimeEntry>> {
+    pub async fn list_time_entries(
+        &self,
+        task_id: Option<u64>,
+        project_id: Option<u64>,
+        since: Option<&str>,
+        until: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Vec<TimeEntry>> {
         let mut params: Vec<(String, String)> = Vec::new();
         if let Some(tid) = task_id {
             params.push(("tid".to_string(), tid.to_string()));
+        }
+        if let Some(pid) = project_id {
+            params.push(("pid".to_string(), pid.to_string()));
+        }
+        if let Some(s) = since {
+            params.push(("since".to_string(), s.to_string()));
+        }
+        if let Some(u) = until {
+            params.push(("until".to_string(), u.to_string()));
         }
         if let Some(l) = limit {
             params.push(("limit".to_string(), l.to_string()));
@@ -266,7 +282,7 @@ impl TrackingTimeClient {
     }
 
     pub async fn get_active_timer(&self) -> Result<Option<TimeEntry>> {
-        let entries: Vec<TimeEntry> = self.list_time_entries(None, Some(1)).await?;
+        let entries: Vec<TimeEntry> = self.list_time_entries(None, None, None, None, Some(1)).await?;
         // Una entrada activa no tiene `end`
         Ok(entries.into_iter().find(|e| e.end.is_none()))
     }
