@@ -663,13 +663,22 @@ impl TrackingTimeTools {
             }
         }
 
-        let entries = self.client
-            .list_time_entries(task_id, project_id, since.as_deref(), until.as_deref(), limit.or(Some(100)))
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        let text = serde_json::to_string_pretty(&entries)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        // Con filtros de proyecto/tarea o fechas: usar /events/flat que devuelve todos los campos
+        let text = if project_id.is_some() || task_id.is_some() || since.is_some() {
+            let entries = self.client
+                .list_time_entries_flat(task_id, project_id, since.as_deref(), until.as_deref(), limit.or(Some(1000)))
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            serde_json::to_string_pretty(&entries)
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        } else {
+            let entries = self.client
+                .list_time_entries(None, None, None, None, limit.or(Some(100)))
+                .await
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            serde_json::to_string_pretty(&entries)
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?
+        };
 
         Ok(CallToolResult::success(vec![Content::text(text)]))
     }

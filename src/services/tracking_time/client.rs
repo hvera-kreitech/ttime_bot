@@ -153,6 +153,7 @@ impl TrackingTimeClient {
 
     // ─── Entradas de tiempo ────────────────────────────────────────────────────
 
+    /// Obtiene entradas recientes sin filtros (solo /events, para detectar timer activo).
     pub async fn list_time_entries(
         &self,
         task_id: Option<u64>,
@@ -161,17 +162,16 @@ impl TrackingTimeClient {
         until: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<TimeEntry>> {
-        // /events/flat es el endpoint correcto para filtrar por proyecto o tarea con rango de fechas.
-        // /events (sin account_id en el path) solo sirve para obtener el timer activo.
-        if project_id.is_some() || task_id.is_some() || since.is_some() {
-            return self.list_time_entries_flat(task_id, project_id, since, until, limit).await;
-        }
-
-        // Sin filtros: usar /events para obtener entradas recientes (ej: timer activo)
+        // Sin filtros: /events para timer activo
         let mut params: Vec<(String, String)> = Vec::new();
         if let Some(l) = limit {
             params.push(("limit".to_string(), l.to_string()));
         }
+        // Parámetros legacy por si se usan desde get_active_timer
+        if let Some(tid) = task_id { params.push(("tid".to_string(), tid.to_string())); }
+        if let Some(pid) = project_id { params.push(("pid".to_string(), pid.to_string())); }
+        if let Some(s) = since { params.push(("since".to_string(), s.to_string())); }
+        if let Some(u) = until { params.push(("until".to_string(), u.to_string())); }
 
         let raw: serde_json::Value = self
             .auth(self.http.get(format!("{}/events", self.base_url)))
@@ -187,14 +187,15 @@ impl TrackingTimeClient {
     }
 
     /// Llama a /events/flat con filter=PROJECT o filter=TASK y rango from/to.
-    async fn list_time_entries_flat(
+    /// Devuelve el JSON crudo de cada evento para que Claude reciba todos los campos.
+    pub async fn list_time_entries_flat(
         &self,
         task_id: Option<u64>,
         project_id: Option<u64>,
         since: Option<&str>,
         until: Option<&str>,
         limit: Option<u32>,
-    ) -> Result<Vec<TimeEntry>> {
+    ) -> Result<Vec<serde_json::Value>> {
         let mut params: Vec<(String, String)> = Vec::new();
 
         if let Some(pid) = project_id {
@@ -225,10 +226,7 @@ impl TrackingTimeClient {
             .json()
             .await?;
 
-        tracing::debug!("events/flat response (first 500): {}", &raw.to_string()[..raw.to_string().len().min(500)]);
-
-        let events = raw["data"].as_array().cloned().unwrap_or_default();
-        Ok(events.into_iter().map(parse_flat_event).collect())
+        Ok(raw["data"].as_array().cloned().unwrap_or_default())
     }
 
     pub async fn start_timer(&self, task_id: u64, notes: Option<String>) -> Result<TimeEntry> {
