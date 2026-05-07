@@ -214,6 +214,7 @@ impl TrackingTimeClient {
         if let Some(l) = limit {
             params.push(("page_size".to_string(), l.to_string()));
         }
+        params.push(("include_custom_fields".to_string(), "true".to_string()));
 
         let raw: serde_json::Value = self
             .auth(self.http.get(format!("{}/events/flat", self.base_url)))
