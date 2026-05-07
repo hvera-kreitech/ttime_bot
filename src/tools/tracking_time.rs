@@ -176,26 +176,29 @@ impl TrackingTimeTools {
             ),
             Tool::new(
                 "tt_list_time_entries",
-                "Lista las entradas de tiempo registradas. Permite filtrar por tarea, proyecto \
-                 y rango de fechas. Útil para consultar horas trabajadas en un proyecto durante \
-                 un período específico (ej: el mes de abril).",
+                "Lista las entradas de tiempo registradas. \
+                 Para consultar horas de un proyecto en un mes: usar project_id + since + until. \
+                 Para consultar horas de una tarea específica: usar task_id + since + until. \
+                 IMPORTANTE: project_id y since/until son parámetros directos de esta tool — \
+                 NO hace falta ninguna otra tool para filtrar por proyecto y fechas. \
+                 Ejemplo: horas del proyecto BPS en abril → project_id=2735967, since='2026-04-01', until='2026-04-30'.",
                 schema(
                     Some(json!({
                         "task_id": {
                             "type": "number",
-                            "description": "Filtrar por ID de tarea (opcional)"
+                            "description": "ID de tarea para filtrar (opcional, usar solo si se quiere una tarea específica)"
                         },
                         "project_id": {
                             "type": "number",
-                            "description": "Filtrar por ID de proyecto (opcional)"
+                            "description": "ID de proyecto para filtrar TODAS las entradas de ese proyecto (opcional)"
                         },
                         "since": {
                             "type": "string",
-                            "description": "Fecha de inicio del rango, formato YYYY-MM-DD (opcional)"
+                            "description": "Fecha de inicio del rango, formato YYYY-MM-DD. Ej: '2026-04-01'"
                         },
                         "until": {
                             "type": "string",
-                            "description": "Fecha de fin del rango, formato YYYY-MM-DD (opcional)"
+                            "description": "Fecha de fin del rango, formato YYYY-MM-DD. Ej: '2026-04-30'"
                         },
                         "limit": {
                             "type": "number",
