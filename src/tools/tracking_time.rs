@@ -629,6 +629,37 @@ impl TrackingTimeTools {
             }
         }
 
+        // Validación de rango máximo (1 año) — aplica para todos los usuarios
+        if let (Some(s), Some(u)) = (since.as_deref(), until.as_deref()) {
+            use chrono::NaiveDate;
+            let parsed_since = NaiveDate::parse_from_str(s, "%Y-%m-%d");
+            let parsed_until = NaiveDate::parse_from_str(u, "%Y-%m-%d");
+            match (parsed_since, parsed_until) {
+                (Ok(d_since), Ok(d_until)) => {
+                    let days = (d_until - d_since).num_days();
+                    if days > 365 {
+                        return Ok(CallToolResult::success(vec![Content::text(
+                            format!(
+                                "El rango de fechas ({} a {}) supera el máximo permitido de 1 año ({} días). \
+                                 Por favor acotá el período.",
+                                s, u, days
+                            )
+                        )]));
+                    }
+                    if days < 0 {
+                        return Ok(CallToolResult::success(vec![Content::text(
+                            format!("La fecha 'since' ({}) debe ser anterior a 'until' ({}).", s, u)
+                        )]));
+                    }
+                }
+                _ => {
+                    return Ok(CallToolResult::success(vec![Content::text(
+                        "Formato de fecha inválido. Usá YYYY-MM-DD (ej: 2026-04-01).".to_string()
+                    )]));
+                }
+            }
+        }
+
         let entries = self.client
             .list_time_entries(task_id, project_id, since.as_deref(), until.as_deref(), limit.or(Some(100)))
             .await
